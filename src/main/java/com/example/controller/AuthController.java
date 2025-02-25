@@ -8,7 +8,7 @@ import lombok.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -39,8 +39,15 @@ public class AuthController {
         String password = request.get("password");
 
         return userService.findByUsername(username)
-                .filter(user -> userService.verifyPassword(password, user.getPassword()))  // ✅ 确保这里逻辑正确
-                .map(user -> ResponseEntity.ok(Map.of("token", jwtUtil.generateToken(username))))
+                .filter(user -> userService.verifyPassword(password, user.getPassword()))
+                .map(user -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("token", jwtUtil.generateToken(username)); // ✅ 生成 JWT
+                    response.put("username", username);
+                    response.put("avatarUrl", user.getAvatarUrl()); // ✅ 这里从数据库获取
+                    return ResponseEntity.ok(response);
+                })
                 .orElseGet(() -> ResponseEntity.status(401).body(Map.of("error", "用户名或密码错误")));
     }
+
 }

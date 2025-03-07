@@ -1,112 +1,197 @@
 package com.example.websocket;
 
+import com.example.model.FriendRequest;
+import com.example.repository.FriendRequestRepository;
+import com.example.repository.FriendshipRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import com.example.model.Message;
-import java.text.SimpleDateFormat;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import com.example.model.User;
+import com.example.service.UserService;
+import com.example.model.Friendship;
+
 import java.util.*;
 
+@Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
+
+    @Autowired
+    private FriendRequestRepository friendRequestRepository;
+
+    @Autowired
+    private FriendshipRepository friendshipRepository;
+
+    @Autowired
+    private UserService userService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Set<WebSocketSession> sessions = Collections.synchronizedSet(new HashSet<>());
-    private final Map<Integer, Message> messages = new HashMap<>();
-    private final Set<Integer> viewingMessages = Collections.synchronizedSet(new HashSet<>());
+    private final Map<String, Long> sessionUserMap = new HashMap<>();
 
-    public ChatWebSocketHandler() {
-        // 初始化两个消息
-        messages.put(1, new Message(1, "王总", "山西旺德福烟酒商行", 1, generateRandomContent(), getCurrentTime(), "https://reactnative.dev/img/tiny_logo.png"));
-        messages.put(2, new Message(2, "李总", "广东鑫海商贸有限公司", 1, generateRandomContent(), getCurrentTime(), "https://reactnative.dev/img/tiny_logo.png"));
-
-        // 启动定时任务，每 5 秒更新消息
-        Timer timer = new Timer();
-        timer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                sendUpdatedMessages();
-            }
-        }, 0, 5000);
-    }
-
+    // WebSocket 连接建立时添加用户 ID
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        sessions.add(session);
-        System.out.println("新客户端已连接: " + session.getId());
-
-        // 发送当前的消息给新连接的客户端
-        for (Message message : messages.values()) {
-            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(message)));
-        }
-    }
-
-    @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        System.out.println("收到消息 => " + message.getPayload());
-
-        try {
-            Map<String, Object> data = objectMapper.readValue(message.getPayload(), Map.class);
-            if (data.containsKey("messageRead") && data.containsKey("messageId")) {
-                int messageId = (int) data.get("messageId");
-                if (messages.containsKey(messageId)) {
-                    Message msg = messages.get(messageId);
-                    msg.setBadgeCount(0);
-                    viewingMessages.add(messageId);
-
-                    // 广播给所有客户端
-                    String updatedMessage = objectMapper.writeValueAsString(msg);
-                    for (WebSocketSession ws : sessions) {
-                        if (ws.isOpen()) {
-                            ws.sendMessage(new TextMessage(updatedMessage));
-                        }
-                    }
-                }
-            } else {
-                viewingMessages.clear();
-            }
-        } catch (Exception e) {
-            System.err.println("解析 WebSocket 消息错误: " + e.getMessage());
-        }
+        super.afterConnectionEstablished(session);
+        Long userId = getUserIdFromSession(session); // 获取用户 ID
+        addSession(session, userId); // 将会话与用户 ID 关联
+        System.out.println("WebSocket 已连接，用户 ID: " + userId);
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        sessions.remove(session);
-        System.out.println("客户端断开连接: " + session.getId());
+        super.afterConnectionClosed(session, status);
+        synchronized (sessions) {
+            sessions.remove(session); // 移除会话
+            sessionUserMap.remove(session.getId()); // 移除会话与用户的映射
+        }
+        System.out.println("WebSocket 会话已关闭: " + session.getId() + " 状态: " + status);
     }
 
-    private void sendUpdatedMessages() {
-        try {
-            for (Message message : messages.values()) {
-                if (!viewingMessages.contains(message.getId())) {
-                    message.setBadgeCount(message.getBadgeCount() + 1);
-                }
-                message.setText(generateRandomContent());
-                message.setDate(getCurrentTime());
+    // 处理收到的消息
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        System.out.println("收到消息 => " + message.getPayload());
+        Map<String, Object> data = objectMapper.readValue(message.getPayload(), Map.class);
 
-                String updatedMessage = objectMapper.writeValueAsString(message);
-                for (WebSocketSession session : sessions) {
-                    if (session.isOpen()) {
-                        session.sendMessage(new TextMessage(updatedMessage));
-                    }
-                }
+        if (data.containsKey("friendRequest")) {
+            Long fromUserId = Long.valueOf(data.get("fromUserId").toString());
+            Long toUserId = Long.valueOf(data.get("toUserId").toString());
+
+            System.out.println("📌 处理好友请求: fromUserId=" + fromUserId + ", toUserId=" + toUserId);
+
+            if (fromUserId.equals(toUserId)) {
+                System.err.println("❌ 不能给自己发送好友请求！");
+                return;
             }
-        } catch (Exception e) {
-            System.err.println("发送更新消息错误: " + e.getMessage());
+
+            sendFriendRequest(fromUserId, toUserId); // 发送好友请求
+        } else if (data.containsKey("acceptRequest")) {
+            Long fromUserId = Long.valueOf(data.get("fromUserId").toString());
+            Long toUserId = Long.valueOf(data.get("toUserId").toString());
+            acceptFriendRequest(toUserId, fromUserId); // 接受好友请求
+        } else if (data.containsKey("rejectRequest")) {
+            Long fromUserId = Long.valueOf(data.get("fromUserId").toString());
+            Long toUserId = Long.valueOf(data.get("toUserId").toString());
+            rejectFriendRequest(toUserId, fromUserId); // 拒绝好友请求
         }
     }
 
-    private String generateRandomContent() {
-        List<String> messages = Arrays.asList(
-                "这是一条随机生成的消息内容。",
-                "随机内容生成器非常方便。",
-                "今天天气不错，随便写点什么。",
-                "这里可以根据业务需求添加更多的随机内容。",
-                "随机生成内容可以增加用户的体验。"
-        );
-        return messages.get(new Random().nextInt(messages.size()));
+    // 获取用户信息
+    private User getUserInfo(Long userId) {
+        return userService.findUserById(userId); // 根据 ID 查找用户
     }
 
-    private String getCurrentTime() {
-        return new SimpleDateFormat("M/d HH:mm").format(new Date());
+    private void sendFriendRequest(Long fromUserId, Long toUserId) {
+        // 获取发送者的用户信息
+        User fromUser = getUserInfo(fromUserId);
+
+        Map<String, Object> friendRequestMessage = new HashMap<>();
+        friendRequestMessage.put("friendRequest", "send");
+        friendRequestMessage.put("toUserId", toUserId);
+        friendRequestMessage.put("fromUserId", fromUserId);
+        friendRequestMessage.put("status", "send");
+        friendRequestMessage.put("fromUserName", fromUser.getUsername());  // 添加用户名
+        friendRequestMessage.put("avatarUrl", fromUser.getAvatarUrl());  // 添加头像 URL
+
+        try {
+            String message = objectMapper.writeValueAsString(friendRequestMessage);
+            System.out.println("✅ 发送好友请求: " + message);
+
+            synchronized (sessions) {
+                // 遍历所有 WebSocket 会话
+                for (WebSocketSession ws : sessions) {
+                    Long sessionUserId = sessionUserMap.get(ws.getId());
+
+                    // 找到目标用户对应的会话
+                    if (sessionUserId != null && sessionUserId.equals(toUserId)) {
+                        // 确保会话仍然处于打开状态
+                        if (ws.isOpen()) {
+                            System.out.println("📤 发送请求给: sessionId=" + ws.getId() + ", userId=" + toUserId);
+                            ws.sendMessage(new TextMessage(message)); // 发送消息
+                        } else {
+                            System.err.println("❌ WebSocket 会话已关闭: " + ws.getId());
+                        }
+                        return; // 只发给目标用户
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ 发送好友请求失败: " + e.getMessage());
+        }
+    }
+
+    // 接受好友请求
+    private void acceptFriendRequest(Long userId, Long fromUserId) {
+        Optional<FriendRequest> request = friendRequestRepository.findByFromUserIdAndToUserId(fromUserId, userId);
+        if (request.isPresent() && "pending".equals(request.get().getStatus())) {
+            request.get().setStatus("accepted");
+            friendRequestRepository.save(request.get());
+            // 创建一个 FriendShip 记录
+            Friendship friendship = new Friendship(fromUserId, userId, "ACCEPTED");
+            friendshipRepository.save(friendship);
+            // 发送 WebSocket 通知
+            notifyUser(fromUserId, "你的好友请求已被接受！");
+        }
+    }
+
+    // 拒绝好友请求
+    private void rejectFriendRequest(Long userId, Long fromUserId) {
+        Optional<FriendRequest> request = friendRequestRepository.findByFromUserIdAndToUserId(fromUserId, userId);
+        if (request.isPresent() && "pending".equals(request.get().getStatus())) {
+            request.get().setStatus("rejected");
+            friendRequestRepository.save(request.get());
+            // 发送 WebSocket 通知
+            notifyUser(fromUserId, "你的好友请求被拒绝！");
+        }
+    }
+
+    private void notifyUser(Long userId, String message) {
+        // 获取目标用户信息
+        User user = getUserInfo(userId);
+
+        synchronized (sessions) {
+            for (WebSocketSession ws : sessions) {
+                Long sessionUserId = sessionUserMap.get(ws.getId());
+                if (sessionUserId != null && sessionUserId.equals(userId)) {
+                    try {
+                        // 构建带有用户信息的通知消息
+                        Map<String, Object> notificationMessage = new HashMap<>();
+                        notificationMessage.put("notification", message);
+                        notificationMessage.put("username", user.getUsername());  // 用户名
+                        notificationMessage.put("avatarUrl", user.getAvatarUrl());  // 头像
+
+                        ws.sendMessage(new TextMessage(objectMapper.writeValueAsString(notificationMessage)));
+                    } catch (Exception e) {
+                        System.err.println("通知用户失败: " + e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    // 从会话中获取用户 ID
+    private Long getUserIdFromSession(WebSocketSession session) {
+        Object userIdObj = session.getAttributes().get("userId");
+        if (userIdObj instanceof Number) {
+            return ((Number) userIdObj).longValue();
+        }
+        System.out.println("⚠️ 未找到用户ID，使用默认值 1L");
+        return 1L; // 默认值
+    }
+
+    // 记录 WebSocket 会话与用户 ID 的映射
+    private void addSession(WebSocketSession session, Long userId) {
+        if (userId != null) {
+            synchronized (sessions) {
+                sessionUserMap.put(session.getId(), userId);
+                sessions.add(session);  // 将会话添加到 sessions 集合
+                System.out.println("✅ 记录 WebSocket 连接: sessionId=" + session.getId() + ", userId=" + userId);
+            }
+        } else {
+            System.err.println("⚠️ userId 为空，无法存入 sessionUserMap");
+        }
     }
 }

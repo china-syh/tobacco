@@ -26,8 +26,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
+        // 打印所有请求头
+        System.out.println("请求头：");
+        request.getHeaderNames().asIterator().forEachRemaining(header ->
+                System.out.println(header + ": " + request.getHeader(header))
+        );
+
         String token = getJwtFromRequest(request);
-        System.out.println("JWT Token: " + token);  // 调试 Token 是否正确传入
+        System.out.println("JWT Token: " + token);  // 确保 Token 能正确提取
 
         if (token != null && jwtUtil.validateToken(token)) {
             String username = jwtUtil.extractUsername(token);
@@ -47,6 +53,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
     }
+
 
 
     // 从请求头中获取JWT

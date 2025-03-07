@@ -43,11 +43,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration corsConfig = new CorsConfiguration();
-        corsConfig.setAllowedOrigins(List.of("https://tobacco-production.up.railway.app/", "http://localhost:8081"));
-        corsConfig.addAllowedOriginPattern("*");  // 允许所有来源
+        corsConfig.addAllowedOriginPattern("http://localhost:8081"); // 显式允许来自 localhost:8081 的请求
+        corsConfig.addAllowedOriginPattern("*"); // ✅ 允许所有来源
         corsConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         corsConfig.setAllowedHeaders(List.of("*"));
-        corsConfig.setAllowCredentials(true);
+        corsConfig.setAllowCredentials(true);  // ✅ 允许携带 Cookie 或 Authorization 头
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", corsConfig);

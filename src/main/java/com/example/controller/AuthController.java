@@ -4,10 +4,10 @@ import com.example.model.User;
 import com.example.service.UserService;
 import com.example.util.JwtUtil;
 import lombok.*;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -42,12 +42,13 @@ public class AuthController {
                 .filter(user -> userService.verifyPassword(password, user.getPassword()))
                 .map(user -> {
                     Map<String, Object> response = new HashMap<>();
-                    response.put("token", jwtUtil.generateToken(username)); // ✅ 生成 JWT
+                    Long userId = user.getId(); // 获取 userId
+                    response.put("token", jwtUtil.generateToken(username, userId)); // 传递 username 和 userId
                     response.put("username", username);
-                    response.put("avatarUrl", user.getAvatarUrl()); // ✅ 这里从数据库获取
+                    response.put("avatarUrl", user.getAvatarUrl()); // 从数据库获取用户头像
+                    response.put("userId", userId); // 返回 userId
                     return ResponseEntity.ok(response);
                 })
                 .orElseGet(() -> ResponseEntity.status(401).body(Map.of("error", "用户名或密码错误")));
     }
-
 }

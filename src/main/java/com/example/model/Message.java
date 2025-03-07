@@ -1,6 +1,12 @@
 package com.example.model;
 
+import lombok.Getter;
+
+import java.util.Objects;
+
+@Getter
 public class Message {
+    // Getters
     private int id;
     private String name;
     private String about;
@@ -19,17 +25,21 @@ public class Message {
         this.img = img;
     }
 
-    // Getters
-    public int getId() { return id; }
-    public String getName() { return name; }
-    public String getAbout() { return about; }
-    public int getBadgeCount() { return badgeCount; }
-    public String getText() { return text; }
-    public String getDate() { return date; }
-    public String getImg() { return img; }
-
     // Setters
     public void setBadgeCount(int badgeCount) { this.badgeCount = badgeCount; }
     public void setText(String text) { this.text = text; }
     public void setDate(String date) { this.date = date; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Message message = (Message) o;
+        return id == message.id;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
 }
